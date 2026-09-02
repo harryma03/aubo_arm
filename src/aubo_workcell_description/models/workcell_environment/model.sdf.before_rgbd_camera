@@ -1,0 +1,86 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="workcell_environment">
+    <static>true</static>
+
+    <!-- Original coordinates from robot.urdf. The launch file spawns this
+         complete workcell at z=-0.95, so the original Joint_1 mount
+         (z=+0.95 relative to base_link) coincides with the EXISTING AUBO
+         base_link at world z=0. This keeps the current AUBO/MoveIt/TF setup
+         unchanged. -->
+
+    <link name="workcell_base">
+      <pose>0 0 0 0 0 0</pose>
+      <visual name="visual">
+        <geometry><mesh><uri>model://workcell_environment/meshes/base_link.stl</uri></mesh></geometry>
+      </visual>
+      <collision name="collision">
+        <geometry><mesh><uri>model://workcell_environment/meshes/base_link.stl</uri></mesh></geometry>
+      </collision>
+    </link>
+
+
+    <link name="box">
+
+      <!--
+        Keep the original top rim position unchanged.
+
+        Outer height = 0.12 m
+        Bottom thickness = 0.02 m
+        Effective inner depth = 0.10 m
+      -->
+      <pose>0.39500125 -0.32996664 0.81443794 0 0.00000367 -1.57079265</pose>
+
+      <!-- Keep original appearance, only make it shallow in Z -->
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://workcell_environment/meshes/box.stl</uri>
+            <scale>1 1 0.12843</scale>
+          </mesh>
+        </geometry>
+      </visual>
+
+      <!-- bottom -->
+
+      <!-- x-min wall -->
+
+      <!-- x-max wall -->
+
+      <!-- y-min wall -->
+
+      <!-- y-max wall -->
+
+    
+      <collision name="table_surface_collision">
+        <pose>0.570085 -0.395 0.070 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>1.14017 0.79000 0.100</size>
+          </box>
+        </geometry>
+      </collision>
+</link>
+
+
+    <link name="store">
+      <pose>-0.42499759 -0.64593152 0.01004677 0 0.00000367 -1.57079265</pose>
+      <visual name="visual">
+        <geometry><mesh><uri>model://workcell_environment/meshes/store.stl</uri></mesh></geometry>
+      </visual>
+      <collision name="collision">
+        <geometry><mesh><uri>model://workcell_environment/meshes/store.stl</uri></mesh></geometry>
+      </collision>
+    </link>
+
+    <link name="camera_holder">
+      <pose>0.59012976 -0.92535016 0.01004575 0 -0.00000367 1.5708</pose>
+      <visual name="visual">
+        <geometry><mesh><uri>model://workcell_environment/meshes/camera_holder.stl</uri></mesh></geometry>
+      </visual>
+      <collision name="collision">
+        <geometry><mesh><uri>model://workcell_environment/meshes/camera_holder.stl</uri></mesh></geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>

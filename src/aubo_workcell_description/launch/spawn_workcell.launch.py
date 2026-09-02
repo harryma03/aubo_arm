@@ -1,0 +1,54 @@
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, TimerAction
+from launch.substitutions import LaunchConfiguration
+from ament_index_python.packages import get_package_share_directory
+import os
+
+
+def generate_launch_description():
+    pkg = get_package_share_directory('aubo_workcell_description')
+    workcell_sdf = os.path.join(pkg, 'models', 'workcell_environment', 'model.sdf')
+    ground_sdf = os.path.join(pkg, 'models', 'workcell_ground', 'model.sdf')
+
+    workcell_z = LaunchConfiguration('workcell_z')
+    ground_z = LaunchConfiguration('ground_z')
+
+    # The existing AUBO base_link stays at world z=0.
+    # In the supplied robot.urdf the arm mount is +0.95 m above the workcell base,
+    # so spawn the workcell and its ground at -0.95 m.
+    return LaunchDescription([
+        DeclareLaunchArgument('workcell_z', default_value='-0.95'),
+        DeclareLaunchArgument('ground_z', default_value='-0.95'),
+
+        # Remove Gazebo's default ground at z=0 so it does not hide the lowered workcell.
+        TimerAction(
+            period=0.5,
+            actions=[ExecuteProcess(
+                cmd=['ros2', 'service', 'call', '/delete_entity',
+                     'gazebo_msgs/srv/DeleteEntity', "{name: 'ground_plane'}"],
+                output='screen'
+            )]
+        ),
+
+        # Spawn replacement ground at the physical bottom of the imported workcell.
+        TimerAction(
+            period=1.5,
+            actions=[ExecuteProcess(
+                cmd=['ros2', 'run', 'gazebo_ros', 'spawn_entity.py',
+                     '-entity', 'workcell_ground', '-file', ground_sdf,
+                     '-x', '0', '-y', '0', '-z', ground_z],
+                output='screen'
+            )]
+        ),
+
+        # Spawn the imported non-arm scene. Its original arm mount lands at world z=0.
+        TimerAction(
+            period=2.0,
+            actions=[ExecuteProcess(
+                cmd=['ros2', 'run', 'gazebo_ros', 'spawn_entity.py',
+                     '-entity', 'workcell_environment', '-file', workcell_sdf,
+                     '-x', '0', '-y', '0', '-z', workcell_z],
+                output='screen'
+            )]
+        ),
+    ])

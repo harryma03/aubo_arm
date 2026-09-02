@@ -1,0 +1,27 @@
+# ROS2 colcon
+build/
+install/
+log/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+
+# OS / temp
+.DS_Store
+*.swp
+*~
+*.log
+
+# Gazebo
+.gazebo/
+
+# Core dump
+core
+core.*
