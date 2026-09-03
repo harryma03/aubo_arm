@@ -1,5 +1,14 @@
 # AUBO i10 随机物料视觉抓取工作站仿真 README
 
+## 快速启动
+## 1启动系统
+~/aubo_grasp_ws/start_aubo_system.sh
+## 2随机生成并抓完
+~/aubo_grasp_ws/run_random_pick.sh
+
+
+
+## 详细步骤
 ## 1. 当前系统
 
 工作空间：

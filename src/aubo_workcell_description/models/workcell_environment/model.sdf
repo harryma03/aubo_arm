@@ -20,47 +20,214 @@
     </link>
 
 
+    <!-- ========================================================= -->
+    <!-- SOURCE HOPPER                                             -->
+    <!-- Top inner opening : 0.740 x 1.095 m                      -->
+    <!-- Bottom inner size : 0.615 x 0.930 m                      -->
+    <!-- Inner depth       : 0.810 m                              -->
+    <!-- Interior is hollow                                      -->
+    <!-- ========================================================= -->
+
     <link name="box">
 
       <!--
-        Keep the original top rim position unchanged.
+        Keep the original source-table top-center position.
 
-        Outer height = 0.12 m
-        Bottom thickness = 0.02 m
-        Effective inner depth = 0.10 m
+        This model is spawned at world z = -0.95.
+
+        Model coordinates here:
+          x =  0.000003
+          y = -0.900053
+          z =  0.934438
+
+        Therefore hopper top opening in world:
+          x ~=  0.000
+          y ~= -0.900
+          z ~= -0.01556
       -->
-      <pose>0.39500125 -0.32996664 0.81443794 0 0.00000367 -1.57079265</pose>
+      <pose>0.00000335 -0.90005309 0.93443794 0 0 0</pose>
 
-      <!-- Keep original appearance, only make it shallow in Z -->
-      <visual name="visual">
-        <geometry>
-          <mesh>
-            <uri>model://workcell_environment/meshes/box.stl</uri>
-            <scale>1 1 0.12843</scale>
-          </mesh>
-        </geometry>
-      </visual>
 
-      <!-- bottom -->
+      <!-- ===================================================== -->
+      <!-- RIGHT WALL : +X                                      -->
+      <!-- top x = +0.370                                       -->
+      <!-- bottom x = +0.3075                                   -->
+      <!-- ===================================================== -->
 
-      <!-- x-min wall -->
-
-      <!-- x-max wall -->
-
-      <!-- y-min wall -->
-
-      <!-- y-max wall -->
-
-    
-      <collision name="table_surface_collision">
-        <pose>0.570085 -0.395 0.070 0 0 0</pose>
+      <collision name="hopper_right_collision">
+        <pose>0.33875 0 -0.405 0 0.0770079 0</pose>
         <geometry>
           <box>
-            <size>1.14017 0.79000 0.100</size>
+            <size>0.020 1.095 0.812408</size>
           </box>
         </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>0.8</mu>
+              <mu2>0.8</mu2>
+            </ode>
+          </friction>
+        </surface>
       </collision>
-</link>
+
+      <visual name="hopper_right_visual">
+        <pose>0.33875 0 -0.405 0 0.0770079 0</pose>
+        <geometry>
+          <box>
+            <size>0.020 1.095 0.812408</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.82 0.82 0.82 1</ambient>
+          <diffuse>0.82 0.82 0.82 1</diffuse>
+        </material>
+      </visual>
+
+
+      <!-- ===================================================== -->
+      <!-- LEFT WALL : -X                                       -->
+      <!-- ===================================================== -->
+
+      <collision name="hopper_left_collision">
+        <pose>-0.33875 0 -0.405 0 -0.0770079 0</pose>
+        <geometry>
+          <box>
+            <size>0.020 1.095 0.812408</size>
+          </box>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>0.8</mu>
+              <mu2>0.8</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+
+      <visual name="hopper_left_visual">
+        <pose>-0.33875 0 -0.405 0 -0.0770079 0</pose>
+        <geometry>
+          <box>
+            <size>0.020 1.095 0.812408</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.82 0.82 0.82 1</ambient>
+          <diffuse>0.82 0.82 0.82 1</diffuse>
+        </material>
+      </visual>
+
+
+      <!-- ===================================================== -->
+      <!-- FRONT WALL : -Y                                      -->
+      <!-- top y = -0.5475                                     -->
+      <!-- bottom y = -0.465                                   -->
+      <!-- ===================================================== -->
+
+      <collision name="hopper_front_collision">
+        <pose>0 -0.50625 -0.405 0.1015018 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.740 0.020 0.814191</size>
+          </box>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>0.8</mu>
+              <mu2>0.8</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+
+      <visual name="hopper_front_visual">
+        <pose>0 -0.50625 -0.405 0.1015018 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.740 0.020 0.814191</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.82 0.82 0.82 1</ambient>
+          <diffuse>0.82 0.82 0.82 1</diffuse>
+        </material>
+      </visual>
+
+
+      <!-- ===================================================== -->
+      <!-- BACK WALL : +Y                                       -->
+      <!-- ===================================================== -->
+
+      <collision name="hopper_back_collision">
+        <pose>0 0.50625 -0.405 -0.1015018 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.740 0.020 0.814191</size>
+          </box>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>0.8</mu>
+              <mu2>0.8</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+
+      <visual name="hopper_back_visual">
+        <pose>0 0.50625 -0.405 -0.1015018 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.740 0.020 0.814191</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.82 0.82 0.82 1</ambient>
+          <diffuse>0.82 0.82 0.82 1</diffuse>
+        </material>
+      </visual>
+
+
+      <!-- ===================================================== -->
+      <!-- BOTTOM                                                -->
+      <!-- inner bottom surface z = -0.810                      -->
+      <!-- ===================================================== -->
+
+      <collision name="hopper_bottom_collision">
+        <pose>0 0 -0.825 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.615 0.930 0.030</size>
+          </box>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>0.9</mu>
+              <mu2>0.9</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+
+      <visual name="hopper_bottom_visual">
+        <pose>0 0 -0.825 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.615 0.930 0.030</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.82 0.82 0.82 1</ambient>
+          <diffuse>0.82 0.82 0.82 1</diffuse>
+        </material>
+      </visual>
+
+    </link>
 
 
     <link name="store">

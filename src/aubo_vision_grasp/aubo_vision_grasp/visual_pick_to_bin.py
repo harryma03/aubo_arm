@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import time
+
 import rclpy
 
 from std_srvs.srv import Trigger
@@ -13,22 +14,41 @@ class VisualPickToBin(AutoSuctionGrasp):
     def __init__(self):
         super().__init__()
 
-        # 目前已经验证稳定的安全高度
+        # =====================================================
+        # SOURCE HOPPER
+        # =====================================================
+
+        # 料斗外部安全高度
         self.safe_z = 0.300
 
-        # 小箱已验证可安全深入的位置
+        # 料斗顶部约 z=-0.0156
+        # 使用 +0.050 作为进入/退出料斗的公共高度
+        self.hopper_entry_z = 0.050
+
+        # 抓取前在目标上方 12 cm 停一次
+        self.pregrasp_offset = 0.030
+
+        # 当前吸盘插件已经验证：
+        # TCP 在目标顶面约 2 cm 上方可吸附
+        self.contact_offset = 0.020
+
+        # =====================================================
+        # RECEIVING BIN
+        # =====================================================
+
         self.place_x = -0.605
         self.place_y = -0.806
 
-        # 分两段进入小箱
         self.place_entry_z = -0.050
-
-        # 接近箱底再释放
         self.place_release_z = -0.150
 
         self.get_logger().info(
-            'Visual random-cube -> small-bin node started'
+            'Visual deep-hopper -> small-bin node started'
         )
+
+    # =========================================================
+    # Suction OFF
+    # =========================================================
 
     def suction_off(self):
 
@@ -63,13 +83,25 @@ class VisualPickToBin(AutoSuctionGrasp):
                 response.message
             )
 
-    def direct_or_ompl(self, name, x, y, z):
+    # =========================================================
+    # Direct Cartesian first, OMPL fallback
+    # =========================================================
+
+    def direct_or_ompl(
+        self,
+        name,
+        x,
+        y,
+        z
+    ):
 
         self.get_logger().info(
-            f'{name}: try shortest collision-checked Cartesian path'
+            f'{name}: try shortest collision-checked '
+            'Cartesian path'
         )
 
         try:
+
             trajectory = self.compute_cartesian(
                 name,
                 x,
@@ -101,202 +133,383 @@ class VisualPickToBin(AutoSuctionGrasp):
             trajectory
         )
 
+    # =========================================================
+    # Main pick-place sequence
+    # =========================================================
+
     def run(self):
 
-        # =====================================================
-        # 1. RGB-D target
-        # =====================================================
+        suction_active = False
 
-        x, y, object_top_z = self.get_target()
+        try:
 
-        self.get_logger().info(
-            '========================================'
-        )
+            # =================================================
+            # 1. RGB-D target
+            # =================================================
 
-        self.get_logger().info(
-            'VISUAL RANDOM PICK'
-        )
+            x, y, object_top_z = self.get_target()
 
-        self.get_logger().info(
-            f'target = '
-            f'({x:.3f}, {y:.3f}, {object_top_z:.3f})'
-        )
+            self.get_logger().info(
+                '========================================'
+            )
 
-        self.get_logger().info(
-            '========================================'
-        )
+            self.get_logger().info(
+                'VISUAL DEEP-HOPPER PICK'
+            )
 
-        # 吸盘TCP在物体顶面约2cm上方时，
-        # 当前Gazebo吸盘插件已经验证可以成功吸附。
-        contact_z = object_top_z + 0.020
+            self.get_logger().info(
+                f'target = '
+                f'({x:.3f}, {y:.3f}, {object_top_z:.3f})'
+            )
 
-        # =====================================================
-        # 2. 当前姿态 -> 目标上方
-        # =====================================================
+            self.get_logger().info(
+                '========================================'
+            )
 
-        self.get_logger().info(
-            'STEP 1: shortest safe path -> PICK_SAFE'
-        )
+            # -------------------------------------------------
+            # Basic target safety check
+            #
+            # Hopper bottom inner region is approximately:
+            # x = +/-0.3075
+            # y = -0.900 +/-0.465
+            #
+            # Leave a safety margin from walls.
+            # -------------------------------------------------
 
-        self.direct_or_ompl(
-            'PICK_SAFE',
-            x,
-            y,
-            self.safe_z
-        )
+            if not (
+                -0.29 < x < 0.29 and
+                -1.34 < y < -0.46 and
+                -0.82 < object_top_z < 0.05
+            ):
+                raise RuntimeError(
+                    'Target is outside safe deep-hopper '
+                    f'pick region: '
+                    f'({x:.3f}, {y:.3f}, {object_top_z:.3f})'
+                )
 
-        time.sleep(0.3)
+            # -------------------------------------------------
+            # Actual suction contact point
+            # -------------------------------------------------
 
-        # =====================================================
-        # 3. 垂直下降
-        # =====================================================
+            contact_z = (
+                object_top_z
+                + self.contact_offset
+            )
 
-        self.get_logger().info(
-            'STEP 2: Cartesian PICK DESCEND'
-        )
+            # -------------------------------------------------
+            # Intermediate pre-grasp point
+            #
+            # Example:
+            # object top  = -0.776
+            # pregrasp    = -0.656
+            # contact     = -0.756
+            # -------------------------------------------------
 
-        self.cartesian_move_to(
-            'PICK_DESCEND',
-            x,
-            y,
-            contact_z
-        )
+            pregrasp_z = (
+                object_top_z
+                + self.pregrasp_offset
+            )
 
-        time.sleep(0.3)
+            # Never allow the pregrasp point to exceed
+            # the hopper entry height.
+            pregrasp_z = min(
+                pregrasp_z,
+                self.hopper_entry_z
+            )
 
-        # =====================================================
-        # 4. 吸附
-        # =====================================================
+            if pregrasp_z <= contact_z:
+                raise RuntimeError(
+                    'Invalid pregrasp/contact geometry'
+                )
 
-        self.get_logger().info(
-            'STEP 3: SUCTION ON'
-        )
+            self.get_logger().info(
+                f'hopper entry z = '
+                f'{self.hopper_entry_z:.3f}'
+            )
 
-        self.suction_on()
+            self.get_logger().info(
+                f'pregrasp z = {pregrasp_z:.3f}'
+            )
 
-        time.sleep(0.4)
+            self.get_logger().info(
+                f'contact z = {contact_z:.3f}'
+            )
 
-        # =====================================================
-        # 5. 垂直抬升
-        # =====================================================
+            # =================================================
+            # 2. Move above selected target
+            # =================================================
 
-        self.get_logger().info(
-            'STEP 4: Cartesian PICK LIFT'
-        )
+            self.get_logger().info(
+                'STEP 1: -> PICK_SAFE'
+            )
 
-        self.cartesian_move_to(
-            'PICK_LIFT',
-            x,
-            y,
-            self.safe_z
-        )
+            self.direct_or_ompl(
+                'PICK_SAFE',
+                x,
+                y,
+                self.safe_z
+            )
 
-        time.sleep(0.3)
+            time.sleep(0.3)
 
-        # =====================================================
-        # 6. 最短安全路径 -> 小箱
-        # =====================================================
+            # =================================================
+            # 3. Move to hopper opening
+            # =================================================
 
-        self.get_logger().info(
-            'STEP 5: shortest safe TRANSFER'
-        )
+            self.get_logger().info(
+                'STEP 2: Cartesian -> HOPPER_ENTRY'
+            )
 
-        self.direct_or_ompl(
-            'TRANSFER',
-            self.place_x,
-            self.place_y,
-            self.safe_z
-        )
+            self.cartesian_move_to(
+                'PICK_ENTRY',
+                x,
+                y,
+                self.hopper_entry_z
+            )
 
-        time.sleep(0.3)
+            time.sleep(0.2)
 
-        # =====================================================
-        # 7. 到箱口内部
-        # =====================================================
+            # =================================================
+            # 4. Descend deep into hopper
+            # =================================================
 
-        self.get_logger().info(
-            'STEP 6: PLACE ENTRY'
-        )
+            self.get_logger().info(
+                'STEP 3: Cartesian -> PICK_PREGRASP'
+            )
 
-        self.cartesian_move_to(
-            'PLACE_ENTRY',
-            self.place_x,
-            self.place_y,
-            self.place_entry_z
-        )
+            self.direct_or_ompl(
+                'PICK_PREGRASP',
+                x,
+                y,
+                pregrasp_z
+            )
 
-        time.sleep(0.2)
+            time.sleep(0.2)
 
-        # =====================================================
-        # 8. 接近箱底
-        # =====================================================
+            # =================================================
+            # 5. Final suction approach
+            # =================================================
 
-        self.get_logger().info(
-            'STEP 7: PLACE FINAL DESCEND'
-        )
+            self.get_logger().info(
+                'STEP 4: Cartesian -> PICK_DESCEND'
+            )
 
-        self.cartesian_move_to(
-            'PLACE_DESCEND',
-            self.place_x,
-            self.place_y,
-            self.place_release_z
-        )
+            self.cartesian_move_to(
+                'PICK_DESCEND',
+                x,
+                y,
+                contact_z
+            )
 
-        time.sleep(0.3)
+            time.sleep(0.3)
 
-        # =====================================================
-        # 9. 释放
-        # =====================================================
+            # =================================================
+            # 6. Suction ON
+            # =================================================
 
-        self.get_logger().info(
-            'STEP 8: SUCTION OFF'
-        )
+            self.get_logger().info(
+                'STEP 5: SUCTION ON'
+            )
 
-        self.suction_off()
+            self.suction_on()
 
-        # Release and leave promptly so the dropped object
-        # does not bounce against the suction tool.
-        time.sleep(0.20)
+            suction_active = True
 
-        # =====================================================
-        # 10. Two-stage vertical retreat
-        # =====================================================
+            time.sleep(0.4)
 
-        self.get_logger().info(
-            'STEP 9A: PLACE RETREAT INNER'
-        )
+            # =================================================
+            # 7. First lift inside hopper
+            # =================================================
 
-        self.cartesian_move_to(
-            'PLACE_RETREAT_INNER',
-            self.place_x,
-            self.place_y,
-            self.place_entry_z
-        )
+            self.get_logger().info(
+                'STEP 6: Cartesian -> PICK_PRELIFT'
+            )
 
-        time.sleep(0.15)
+            self.cartesian_move_to(
+                'PICK_PRELIFT',
+                x,
+                y,
+                pregrasp_z
+            )
 
-        self.get_logger().info(
-            'STEP 9B: PLACE RETREAT SAFE'
-        )
+            time.sleep(0.2)
 
-        self.cartesian_move_to(
-            'PLACE_RETREAT_SAFE',
-            self.place_x,
-            self.place_y,
-            self.safe_z
-        )
+            # =================================================
+            # 8. Exit hopper vertically
+            # =================================================
 
-        self.get_logger().info(
-            '========================================'
-        )
+            self.get_logger().info(
+                'STEP 7: Cartesian -> PICK_EXIT'
+            )
 
-        self.get_logger().info(
-            'VISUAL PICK AND PLACE COMPLETED'
-        )
+            self.cartesian_move_to(
+                'PICK_EXIT',
+                x,
+                y,
+                self.hopper_entry_z
+            )
 
-        self.get_logger().info(
-            '========================================'
-        )
+            time.sleep(0.2)
+
+            # =================================================
+            # 9. Lift to global safe height
+            # =================================================
+
+            self.get_logger().info(
+                'STEP 8: Cartesian -> PICK_LIFT'
+            )
+
+            self.cartesian_move_to(
+                'PICK_LIFT',
+                x,
+                y,
+                self.safe_z
+            )
+
+            time.sleep(0.3)
+
+            # =================================================
+            # 10. Transfer to receiving bin
+            # =================================================
+
+            self.get_logger().info(
+                'STEP 9: shortest safe TRANSFER'
+            )
+
+            self.direct_or_ompl(
+                'TRANSFER',
+                self.place_x,
+                self.place_y,
+                self.safe_z
+            )
+
+            time.sleep(0.3)
+
+            # =================================================
+            # 11. Enter receiving bin
+            # =================================================
+
+            self.get_logger().info(
+                'STEP 10: PLACE ENTRY'
+            )
+
+            self.cartesian_move_to(
+                'PLACE_ENTRY',
+                self.place_x,
+                self.place_y,
+                self.place_entry_z
+            )
+
+            time.sleep(0.2)
+
+            # =================================================
+            # 12. Final place descent
+            # =================================================
+
+            self.get_logger().info(
+                'STEP 11: PLACE FINAL DESCEND'
+            )
+
+            self.cartesian_move_to(
+                'PLACE_DESCEND',
+                self.place_x,
+                self.place_y,
+                self.place_release_z
+            )
+
+            time.sleep(0.3)
+
+            # =================================================
+            # 13. Release
+            # =================================================
+
+            self.get_logger().info(
+                'STEP 12: SUCTION OFF'
+            )
+
+            self.suction_off()
+
+            suction_active = False
+
+            time.sleep(0.20)
+
+            # =================================================
+            # 14. Retreat inside receiving bin
+            # =================================================
+
+            self.get_logger().info(
+                'STEP 13: PLACE RETREAT INNER'
+            )
+
+            self.cartesian_move_to(
+                'PLACE_RETREAT_INNER',
+                self.place_x,
+                self.place_y,
+                self.place_entry_z
+            )
+
+            time.sleep(0.2)
+
+            # =================================================
+            # 15. Return to global safe height
+            # =================================================
+
+            self.get_logger().info(
+                'STEP 14: PLACE RETREAT SAFE'
+            )
+
+            self.cartesian_move_to(
+                'PLACE_RETREAT_SAFE',
+                self.place_x,
+                self.place_y,
+                self.safe_z
+            )
+
+            time.sleep(0.3)
+
+            self.get_logger().info(
+                '========================================'
+            )
+
+            self.get_logger().info(
+                'VISUAL PICK AND PLACE COMPLETED'
+            )
+
+            self.get_logger().info(
+                '========================================'
+            )
+
+            return True
+
+        except Exception as e:
+
+            self.get_logger().error(
+                '========================================'
+            )
+
+            self.get_logger().error(
+                f'VISUAL PICK FAILED: {e}'
+            )
+
+            self.get_logger().error(
+                '========================================'
+            )
+
+            # If something fails while carrying an object,
+            # attempt to release the suction safely.
+            if suction_active:
+
+                try:
+                    self.suction_off()
+
+                except Exception as suction_error:
+
+                    self.get_logger().error(
+                        f'Failed to turn suction off '
+                        f'after error: {suction_error}'
+                    )
+
+            raise
 
 
 def main(args=None):
@@ -306,17 +519,17 @@ def main(args=None):
     node = VisualPickToBin()
 
     try:
+
         node.run()
 
-    except KeyboardInterrupt:
-        pass
-
     except Exception as e:
+
         node.get_logger().error(
-            f'VISUAL PICK FAILED: {e}'
+            f'FAILED: {e}'
         )
 
     finally:
+
         node.destroy_node()
 
         if rclpy.ok():

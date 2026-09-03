@@ -262,7 +262,7 @@ class RedTargetDetector(Node):
             bz = float(p_base[2])
 
             # -------------------------------------------------
-            # Current source-table ROI in base_link.
+            # Current source-hopper ROI in base_link.
             #
             # Table objects:
             #   x roughly [-0.30, +0.30]
@@ -275,9 +275,9 @@ class RedTargetDetector(Node):
             # excluded here.
             # -------------------------------------------------
             if not (
-                -0.30 < bx < 0.30 and
-                -1.10 < by < -0.47 and
-                -0.02 < bz < 0.10
+                -0.36 < bx < 0.36 and
+                -1.43 < by < -0.37 and
+                -0.84 < bz < 0.10
             ):
                 continue
 
@@ -336,7 +336,7 @@ class RedTargetDetector(Node):
             self.last_log_time = now
 
             self.get_logger().info(
-                f'red targets on table={len(valid_targets)} | '
+                f'red targets in hopper={len(valid_targets)} | '
                 f'selected pixel=({u},{v}) '
                 f'depth={Z:.3f} m | '
                 f'base=({p_base[0]:.3f}, '

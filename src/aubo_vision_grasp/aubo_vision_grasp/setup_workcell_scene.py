@@ -21,18 +21,37 @@ class WorkcellScene(Node):
             '/apply_planning_scene'
         )
 
+    # =========================================================
+    # Quaternion
+    # =========================================================
+
     @staticmethod
-    def quat_from_yaw(yaw):
-        qz = math.sin(yaw / 2.0)
-        qw = math.cos(yaw / 2.0)
-        return qz, qw
+    def quat_from_rpy(roll, pitch, yaw):
+        cr = math.cos(roll * 0.5)
+        sr = math.sin(roll * 0.5)
+
+        cp = math.cos(pitch * 0.5)
+        sp = math.sin(pitch * 0.5)
+
+        cy = math.cos(yaw * 0.5)
+        sy = math.sin(yaw * 0.5)
+
+        q = (
+            sr * cp * cy - cr * sp * sy,
+            cr * sp * cy + sr * cp * sy,
+            cr * cp * sy - sr * sp * cy,
+            cr * cp * cy + sr * sp * sy
+        )
+
+        return q
+
+    # =========================================================
+    # XY transform for original workcell STL-local coordinates
+    # =========================================================
 
     @staticmethod
     def transform_xy(origin, yaw, local):
-        """
-        Transform a local box center into base_link/world coordinates.
-        The current AUBO base_link is our Planning Scene reference.
-        """
+
         ox, oy, oz = origin
         lx, ly, lz = local
 
@@ -45,11 +64,20 @@ class WorkcellScene(Node):
 
         return x, y, z
 
+    # =========================================================
+    # CollisionObject helpers
+    # =========================================================
+
     def make_object(self, object_id):
+
         obj = CollisionObject()
+
+        # Current MoveIt / AUBO reference frame
         obj.header.frame_id = 'base_link'
+
         obj.id = object_id
         obj.operation = CollisionObject.ADD
+
         return obj
 
     def add_box(
@@ -57,10 +85,15 @@ class WorkcellScene(Node):
         obj,
         center,
         size,
+        roll=0.0,
+        pitch=0.0,
         yaw=0.0
     ):
+
         primitive = SolidPrimitive()
+
         primitive.type = SolidPrimitive.BOX
+
         primitive.dimensions = [
             float(size[0]),
             float(size[1]),
@@ -68,14 +101,19 @@ class WorkcellScene(Node):
         ]
 
         pose = Pose()
+
         pose.position.x = float(center[0])
         pose.position.y = float(center[1])
         pose.position.z = float(center[2])
 
-        qz, qw = self.quat_from_yaw(yaw)
+        qx, qy, qz, qw = self.quat_from_rpy(
+            roll,
+            pitch,
+            yaw
+        )
 
-        pose.orientation.x = 0.0
-        pose.orientation.y = 0.0
+        pose.orientation.x = qx
+        pose.orientation.y = qy
         pose.orientation.z = qz
         pose.orientation.w = qw
 
@@ -90,6 +128,7 @@ class WorkcellScene(Node):
         local_center,
         size
     ):
+
         center = self.transform_xy(
             link_origin,
             link_yaw,
@@ -100,8 +139,12 @@ class WorkcellScene(Node):
             obj,
             center,
             size,
-            link_yaw
+            yaw=link_yaw
         )
+
+    # =========================================================
+    # Build complete Planning Scene
+    # =========================================================
 
     def build_scene(self):
 
@@ -109,11 +152,11 @@ class WorkcellScene(Node):
 
         # =====================================================
         # 1. Ground
-        #
-        # Gazebo workcell ground is at approximately z=-0.95.
         # =====================================================
 
-        ground = self.make_object('workcell_ground')
+        ground = self.make_object(
+            'workcell_ground'
+        )
 
         self.add_box(
             ground,
@@ -125,13 +168,11 @@ class WorkcellScene(Node):
 
         # =====================================================
         # 2. AUBO mounting pedestal
-        #
-        # Do NOT extend it all the way into the robot base.
-        # This avoids an artificial collision between the
-        # environment and the AUBO base_link.
         # =====================================================
 
-        pedestal = self.make_object('workcell_pedestal')
+        pedestal = self.make_object(
+            'workcell_pedestal'
+        )
 
         self.add_box(
             pedestal,
@@ -142,56 +183,161 @@ class WorkcellScene(Node):
         objects.append(pedestal)
 
         # =====================================================
-        # 3. Large BOX / bin
+        # 3. SOURCE HOPPER
         #
-        # Original mesh bounds approximately:
+        # Matches current Gazebo hopper.
         #
-        # x = 0 ... 1.140
-        # y = -0.790 ... 0
-        # z = 0 ... 0.934
+        # Top inner opening:
+        #   0.740 x 1.095 m
+        #
+        # Bottom inner opening:
+        #   0.615 x 0.930 m
+        #
+        # Inner depth:
+        #   0.810 m
+        #
+        # Structure:
+        #   +X sloped wall
+        #   -X sloped wall
+        #   -Y sloped wall
+        #   +Y sloped wall
+        #   bottom
         #
         # IMPORTANT:
-        # Do NOT model this as one solid cube.
-        # It is represented as bottom + 4 walls so the robot
-        # may later reach into the bin.
+        # The interior is EMPTY.
+        # Do NOT replace this with a solid box.
         # =====================================================
 
-        box_origin = (
-            0.39500125,
-            -0.32996664,
-            -0.94995206
+        hopper = self.make_object(
+            'workcell_box'
         )
 
-        box_yaw = -1.57079265
-
-        # =====================================================
-        # LARGE WHITE PLATFORM
+        # -----------------------------------------------------
+        # Gazebo hopper top-center in base_link/world
         #
-        # This is NOT a bin.
-        # It is the source working surface.
+        # model local:
+        #   x =  0.00000335
+        #   y = -0.90005309
+        #   z =  0.93443794
         #
-        # Solid collision thickness: 0.10 m
-        # Top surface remains at approximately z=-0.0156 m
-        # =====================================================
+        # entire workcell spawn offset:
+        #   z = -0.95
+        #
+        # world / base_link:
+        #   x =  0.00000335
+        #   y = -0.90005309
+        #   z = -0.01556206
+        # -----------------------------------------------------
 
-        bin_obj = self.make_object('workcell_box')
+        hopper_x = 0.00000335
+        hopper_y = -0.90005309
+        hopper_top_z = -0.01556206
 
-        self.add_local_box(
-            bin_obj,
-            box_origin,
-            box_yaw,
-            (0.570085, -0.395000, 0.88439),
-            (1.14017, 0.79000, 0.100)
+        wall_center_z = hopper_top_z - 0.405
+        bottom_center_z = hopper_top_z - 0.825
+
+        # -----------------------------------------------------
+        # +X wall
+        # -----------------------------------------------------
+
+        self.add_box(
+            hopper,
+            center=(
+                hopper_x + 0.33875,
+                hopper_y,
+                wall_center_z
+            ),
+            size=(
+                0.020,
+                1.095,
+                0.812408
+            ),
+            pitch=0.0770079
         )
 
-        objects.append(bin_obj)
+        # -----------------------------------------------------
+        # -X wall
+        # -----------------------------------------------------
+
+        self.add_box(
+            hopper,
+            center=(
+                hopper_x - 0.33875,
+                hopper_y,
+                wall_center_z
+            ),
+            size=(
+                0.020,
+                1.095,
+                0.812408
+            ),
+            pitch=-0.0770079
+        )
+
+        # -----------------------------------------------------
+        # -Y wall
+        #
+        # Keep RPY consistent with current Gazebo SDF.
+        # -----------------------------------------------------
+
+        self.add_box(
+            hopper,
+            center=(
+                hopper_x,
+                hopper_y - 0.50625,
+                wall_center_z
+            ),
+            size=(
+                0.740,
+                0.020,
+                0.814191
+            ),
+            roll=-0.1015018
+        )
+
+        # -----------------------------------------------------
+        # +Y wall
+        # -----------------------------------------------------
+
+        self.add_box(
+            hopper,
+            center=(
+                hopper_x,
+                hopper_y + 0.50625,
+                wall_center_z
+            ),
+            size=(
+                0.740,
+                0.020,
+                0.814191
+            ),
+            roll=0.1015018
+        )
+
+        # -----------------------------------------------------
+        # Bottom
+        # -----------------------------------------------------
+
+        self.add_box(
+            hopper,
+            center=(
+                hopper_x,
+                hopper_y,
+                bottom_center_z
+            ),
+            size=(
+                0.615,
+                0.930,
+                0.030
+            )
+        )
+
+        objects.append(hopper)
 
         # =====================================================
-        # 4. STORE
+        # 4. RECEIVING STORE
         #
-        # Simplified from the supplied STL.
-        # Keep structural pieces while avoiding a huge solid
-        # bounding box.
+        # Keep original hollow receiving bin.
         # =====================================================
 
         store_origin = (
@@ -202,24 +348,15 @@ class WorkcellScene(Node):
 
         store_yaw = -1.57079265
 
-        store = self.make_object('workcell_store')
-
-        # =====================================================
-        # STORE:
-        # IMPORTANT: the upper tray/bin is HOLLOW.
-        #
-        # Original outer bounds of upper container:
-        #   x: -0.025 .. 0.525   -> 0.55 m
-        #   y: -0.350 .. 0.050   -> 0.40 m
-        #   z:  0.591 .. 0.911   -> 0.32 m
-        #
-        # Model as bottom + four walls.
-        # Do NOT use a solid bounding box.
-        # =====================================================
+        store = self.make_object(
+            'workcell_store'
+        )
 
         store_parts = [
 
-            # ---------- hollow upper bin ----------
+            # =================================================
+            # Hollow upper receiving bin
+            # =================================================
 
             # bottom
             (
@@ -227,31 +364,33 @@ class WorkcellScene(Node):
                 (0.5500, 0.4000, 0.0200)
             ),
 
-            # wall: x-min
+            # x-min wall
             (
                 (-0.0125, -0.1500, 0.7610),
                 (0.0250, 0.4000, 0.3000)
             ),
 
-            # wall: x-max
+            # x-max wall
             (
                 (0.5125, -0.1500, 0.7610),
                 (0.0250, 0.4000, 0.3000)
             ),
 
-            # wall: y-min
+            # y-min wall
             (
                 (0.2500, -0.3375, 0.7610),
                 (0.5000, 0.0250, 0.3000)
             ),
 
-            # wall: y-max
+            # y-max wall
             (
                 (0.2500, 0.0375, 0.7610),
                 (0.5000, 0.0250, 0.3000)
             ),
 
-            # ---------- support structure below ----------
+            # =================================================
+            # Support structure
+            # =================================================
 
             # lower plate
             (
@@ -270,14 +409,17 @@ class WorkcellScene(Node):
                 (0.5000, -0.3500, 0.3210),
                 (0.0500, 0.0500, 0.5000)
             ),
+
             (
                 (0.0000, -0.3500, 0.3210),
                 (0.0500, 0.0500, 0.5000)
             ),
+
             (
                 (0.5000, 0.0000, 0.3210),
                 (0.0500, 0.0500, 0.5000)
             ),
+
             (
                 (0.0000, 0.0000, 0.3210),
                 (0.0500, 0.0500, 0.5000)
@@ -285,6 +427,7 @@ class WorkcellScene(Node):
         ]
 
         for center, size in store_parts:
+
             self.add_local_box(
                 store,
                 store_origin,
@@ -296,14 +439,7 @@ class WorkcellScene(Node):
         objects.append(store)
 
         # =====================================================
-        # 5. Camera holder
-        #
-        # The supplied camera_holder STL contains ~266k
-        # triangles, which is unnecessarily expensive for
-        # MoveIt/FCL.
-        #
-        # Use collision primitives for its major structural
-        # pieces. Gazebo still shows the original detailed STL.
+        # 5. CAMERA HOLDER
         # =====================================================
 
         camera_origin = (
@@ -314,9 +450,12 @@ class WorkcellScene(Node):
 
         camera_yaw = 1.5708
 
-        holder = self.make_object('camera_holder')
+        holder = self.make_object(
+            'camera_holder'
+        )
 
         camera_parts = [
+
             # main vertical post
             (
                 (0.0140, -0.00437, 0.9500),
@@ -347,7 +486,7 @@ class WorkcellScene(Node):
                 (0.280, 0.060, 0.100)
             ),
 
-            # curved/support region
+            # curved/support approximation
             (
                 (0.0140, 0.14813, 1.7275),
                 (0.080, 0.265, 0.265)
@@ -355,6 +494,7 @@ class WorkcellScene(Node):
         ]
 
         for center, size in camera_parts:
+
             self.add_local_box(
                 holder,
                 camera_origin,
@@ -366,6 +506,10 @@ class WorkcellScene(Node):
         objects.append(holder)
 
         return objects
+
+    # =========================================================
+    # Apply Planning Scene
+    # =========================================================
 
     def apply(self):
 
@@ -396,7 +540,9 @@ class WorkcellScene(Node):
             'workcell collision objects...'
         )
 
-        future = self.client.call_async(request)
+        future = self.client.call_async(
+            request
+        )
 
         rclpy.spin_until_future_complete(
             self,
@@ -418,9 +564,11 @@ class WorkcellScene(Node):
         self.get_logger().info(
             '======================================'
         )
+
         self.get_logger().info(
             'WORKCELL PLANNING SCENE ADDED'
         )
+
         self.get_logger().info(
             '======================================'
         )
@@ -428,15 +576,20 @@ class WorkcellScene(Node):
         self.get_logger().info(
             'Added: workcell_ground'
         )
+
         self.get_logger().info(
             'Added: workcell_pedestal'
         )
+
         self.get_logger().info(
-            'Added: workcell_box (open-top)'
+            'Added: workcell_box '
+            '(hollow 0.81 m deep hopper)'
         )
+
         self.get_logger().info(
             'Added: workcell_store'
         )
+
         self.get_logger().info(
             'Added: camera_holder'
         )
@@ -444,19 +597,24 @@ class WorkcellScene(Node):
 
 def main(args=None):
 
-    rclpy.init(args=args)
+    rclpy.init(
+        args=args
+    )
 
     node = WorkcellScene()
 
     try:
+
         node.apply()
 
     except Exception as e:
+
         node.get_logger().error(
             f'FAILED: {e}'
         )
 
     finally:
+
         node.destroy_node()
 
         if rclpy.ok():

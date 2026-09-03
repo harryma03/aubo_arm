@@ -157,12 +157,12 @@ class AutoSuctionGrasp(Node):
         )
 
         # 防止错误识别后机械臂乱跑
-        # Current workcell tabletop safe ROI.
+        # Current deep-hopper safe ROI.
         # z is the detected object TOP surface.
         if not (
-            -0.30 < x < 0.30 and
-            -1.10 < y < -0.47 and
-            -0.02 < z < 0.10
+            -0.36 < x < 0.36 and
+            -1.43 < y < -0.37 and
+            -0.82 < z < 0.10
         ):
             raise RuntimeError(
                 f'Target outside safe grasp workspace: '
