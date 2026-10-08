@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CycloneDDS
+  xmlns="https://cdds.io/config"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <Domain Id="any">
+    <!--
+      Raw 640x480 RGB and 32FC1 depth frames are approximately 0.92 MB and
+      1.23 MB.  The CycloneDDS defaults and the stock Linux 212992-byte UDP
+      buffers can drop nearly every fragment at 30 Hz.  These values keep the
+      ROS image transport reliable while remaining modest for a local setup.
+    -->
+    <General>
+      <MaxMessageSize>65500B</MaxMessageSize>
+      <FragmentSize>60000B</FragmentSize>
+    </General>
+    <Internal>
+      <!-- Request 10 MB when the host permits it.  The pick launcher performs
+           the strict host-limit check, so basic simulation can still start
+           before the one-time sysctl configuration is installed. -->
+      <SocketReceiveBufferSize min="default" max="10MB" />
+      <SocketSendBufferSize min="64KiB" max="10MB" />
+      <Watermarks>
+        <WhcHigh>10MB</WhcHigh>
+      </Watermarks>
+    </Internal>
+  </Domain>
+</CycloneDDS>
