@@ -1,0 +1,11 @@
+# Colcon output: rebuilt from src, never source-controlled.
+/build/
+/install/
+/log/
+/run_logs/
+/__pycache__/
+/.vscode/
+/*.orig
+*.log
+*.bak
+*.swp

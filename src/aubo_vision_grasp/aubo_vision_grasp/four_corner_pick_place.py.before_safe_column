@@ -1,0 +1,426 @@
+#!/usr/bin/env python3
+
+import time
+import rclpy
+
+from std_srvs.srv import Trigger
+
+from auto_suction_grasp import AutoSuctionGrasp
+
+
+class FourCornerPickPlace(AutoSuctionGrasp):
+
+    def __init__(self):
+        super().__init__()
+
+        self.get_logger().info(
+            'Four-corner sequential pick-and-place started'
+        )
+
+        # ======================================================
+        # Global motion parameters
+        # ======================================================
+
+        # All horizontal transport happens at this height.
+        self.safe_z = 0.30
+
+        # Large platform:
+        # top ≈ -0.016 m
+        # cube = 0.05 m
+        # cube top ≈ +0.034 m
+        # suction TCP stays about 2 cm above cube top.
+        self.pick_contact_z = 0.054
+
+        # Put cube close to the bottom of the small bin.
+        self.place_release_z = -0.245
+
+        # ======================================================
+        # Source positions on large platform
+        #
+        # Order:
+        #
+        # P1 -------- P2
+        #
+        #
+        # P4 -------- P3
+        # ======================================================
+
+        self.pick_points = [
+            (-0.25, -0.52),   # P1 / cube_1
+            ( 0.25, -0.52),   # P2 / cube_2
+            ( 0.25, -1.20),   # P3 / cube_3
+            (-0.25, -1.20),   # P4 / cube_4
+        ]
+
+        # ======================================================
+        # Target positions inside small bin.
+        #
+        # These are corner REGIONS, not right against the wall.
+        # About 9~10 cm wall clearance is retained for the
+        # suction pad and collision tolerance.
+        #
+        # T1 -------- T2
+        #
+        #
+        # T4 -------- T3
+        # ======================================================
+
+        self.place_points = [
+            (-0.605, -0.866),  # T1
+            (-0.545, -0.866),  # T2
+            (-0.545, -0.926),  # T3
+            (-0.605, -0.926),  # T4
+        ]
+
+    # ==========================================================
+    # Suction OFF
+    # ==========================================================
+
+    def suction_off(self):
+
+        if not self.suction_off_client.wait_for_service(
+            timeout_sec=5.0
+        ):
+            raise RuntimeError('/suction_off unavailable')
+
+        future = self.suction_off_client.call_async(
+            Trigger.Request()
+        )
+
+        rclpy.spin_until_future_complete(
+            self,
+            future
+        )
+
+        response = future.result()
+
+        if response is None:
+            raise RuntimeError(
+                'No /suction_off response'
+            )
+
+        self.get_logger().info(
+            f'/suction_off: '
+            f'success={response.success}, '
+            f'message="{response.message}"'
+        )
+
+        if not response.success:
+            raise RuntimeError(
+                'Suction OFF failed: ' +
+                response.message
+            )
+
+    # ==========================================================
+    # Straight path first, OMPL only when necessary
+    # ==========================================================
+
+    def direct_or_ompl(self, name, x, y, z):
+
+        self.get_logger().info(
+            f'{name}: try shortest collision-checked '
+            'Cartesian path first'
+        )
+
+        try:
+            # IMPORTANT:
+            # compute only first.
+            # If Cartesian planning is incomplete, nothing moves.
+            trajectory = self.compute_cartesian(
+                name,
+                x,
+                y,
+                z
+            )
+
+        except Exception as e:
+
+            self.get_logger().warn(
+                f'{name}: direct Cartesian unavailable: {e}'
+            )
+
+            self.get_logger().warn(
+                f'{name}: fallback to OMPL collision avoidance'
+            )
+
+            self.ompl_move_to(
+                name + '_OMPL',
+                x,
+                y,
+                z
+            )
+
+            return
+
+        # Cartesian path is complete -> execute shortest direct path.
+        self.execute_trajectory(
+            name,
+            trajectory
+        )
+
+    # ==========================================================
+    # One object
+    # ==========================================================
+
+    def move_one(
+        self,
+        index,
+        pick,
+        place,
+        first=False
+    ):
+
+        number = index + 1
+
+        px, py = pick
+        tx, ty = place
+
+        self.get_logger().info(
+            '========================================'
+        )
+
+        self.get_logger().info(
+            f'OBJECT {number}/4'
+        )
+
+        self.get_logger().info(
+            f'P{number} = ({px:.3f}, {py:.3f})'
+        )
+
+        self.get_logger().info(
+            f'T{number} = ({tx:.3f}, {ty:.3f})'
+        )
+
+        self.get_logger().info(
+            '========================================'
+        )
+
+        # ======================================================
+        # A. Move above source cube
+        # ======================================================
+
+        # Always prefer the shortest collision-checked
+        # Cartesian path. Only use OMPL if the direct path
+        # is not feasible.
+        self.get_logger().info(
+            f'[{number}] shortest safe path -> PICK_SAFE'
+        )
+
+        self.direct_or_ompl(
+            f'TO_P{number}',
+            px,
+            py,
+            self.safe_z
+        )
+
+        time.sleep(0.3)
+
+        # ======================================================
+        # B. Vertical pick descent
+        # ======================================================
+
+        self.get_logger().info(
+            f'[{number}] vertical PICK DESCEND'
+        )
+
+        self.cartesian_move_to(
+            f'P{number}_DESCEND',
+            px,
+            py,
+            self.pick_contact_z
+        )
+
+        time.sleep(0.3)
+
+        # ======================================================
+        # C. Attach nearest cube
+        # ======================================================
+
+        self.get_logger().info(
+            f'[{number}] SUCTION ON'
+        )
+
+        self.suction_on()
+
+        time.sleep(0.4)
+
+        # ======================================================
+        # D. Vertical lift
+        # ======================================================
+
+        self.get_logger().info(
+            f'[{number}] vertical PICK LIFT'
+        )
+
+        self.cartesian_move_to(
+            f'P{number}_LIFT',
+            px,
+            py,
+            self.safe_z
+        )
+
+        time.sleep(0.3)
+
+        # ======================================================
+        # E. Transport to corresponding target
+        #
+        # Straight Cartesian first.
+        # If collision / kinematic restriction prevents it,
+        # automatically use OMPL.
+        # ======================================================
+
+        self.get_logger().info(
+            f'[{number}] TRANSFER P{number} -> T{number}'
+        )
+
+        self.direct_or_ompl(
+            f'P{number}_TO_T{number}',
+            tx,
+            ty,
+            self.safe_z
+        )
+
+        time.sleep(0.3)
+
+        # ======================================================
+        # F. Vertical descent into small bin
+        # ======================================================
+
+        # ------------------------------------------------------
+        # Enter small bin in two vertical stages.
+        # This keeps the motion simple and makes collision /
+        # joint-jump diagnostics much clearer.
+        # ------------------------------------------------------
+
+        self.get_logger().info(
+            f'[{number}] vertical PLACE ENTRY'
+        )
+
+        self.cartesian_move_to(
+            f'T{number}_ENTRY',
+            tx,
+            ty,
+            -0.050
+        )
+
+        time.sleep(0.2)
+
+        self.get_logger().info(
+            f'[{number}] vertical PLACE FINAL DESCEND'
+        )
+
+        self.cartesian_move_to(
+            f'T{number}_DESCEND',
+            tx,
+            ty,
+            self.place_release_z
+        )
+
+        time.sleep(0.3)
+
+        # ======================================================
+        # G. Release close to bin bottom
+        # ======================================================
+
+        self.get_logger().info(
+            f'[{number}] SUCTION OFF'
+        )
+
+        self.suction_off()
+
+        time.sleep(0.6)
+
+        # ======================================================
+        # H. Vertical retreat
+        # ======================================================
+
+        self.get_logger().info(
+            f'[{number}] vertical PLACE RETREAT'
+        )
+
+        self.cartesian_move_to(
+            f'T{number}_RETREAT',
+            tx,
+            ty,
+            self.safe_z
+        )
+
+        time.sleep(0.3)
+
+        self.get_logger().info(
+            f'OBJECT {number} COMPLETED'
+        )
+
+    # ==========================================================
+    # Full four-object sequence
+    # ==========================================================
+
+    def run(self):
+
+        self.get_logger().info(
+            '========================================'
+        )
+
+        self.get_logger().info(
+            'FOUR OBJECT SEQUENTIAL PICK AND PLACE'
+        )
+
+        self.get_logger().info(
+            'Strategy: Cartesian shortest path first, '
+            'OMPL fallback on collision'
+        )
+
+        self.get_logger().info(
+            '========================================'
+        )
+
+        for i in range(4):
+
+            self.move_one(
+                i,
+                self.pick_points[i],
+                self.place_points[i],
+                first=(i == 0)
+            )
+
+        self.get_logger().info(
+            '========================================'
+        )
+
+        self.get_logger().info(
+            'ALL FOUR OBJECTS COMPLETED'
+        )
+
+        self.get_logger().info(
+            '========================================'
+        )
+
+
+def main(args=None):
+
+    rclpy.init(args=args)
+
+    node = FourCornerPickPlace()
+
+    try:
+        node.run()
+
+    except KeyboardInterrupt:
+        pass
+
+    except Exception as e:
+
+        node.get_logger().error(
+            f'FOUR-CORNER TASK FAILED: {e}'
+        )
+
+    finally:
+
+        node.destroy_node()
+
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

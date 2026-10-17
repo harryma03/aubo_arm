@@ -1,0 +1,452 @@
+#!/usr/bin/env python3
+
+import math
+
+import rclpy
+from rclpy.node import Node
+
+from geometry_msgs.msg import Pose
+from moveit_msgs.msg import CollisionObject, PlanningScene
+from moveit_msgs.srv import ApplyPlanningScene
+from shape_msgs.msg import SolidPrimitive
+
+
+class WorkcellScene(Node):
+
+    def __init__(self):
+        super().__init__('setup_workcell_scene')
+
+        self.client = self.create_client(
+            ApplyPlanningScene,
+            '/apply_planning_scene'
+        )
+
+    @staticmethod
+    def quat_from_yaw(yaw):
+        qz = math.sin(yaw / 2.0)
+        qw = math.cos(yaw / 2.0)
+        return qz, qw
+
+    @staticmethod
+    def transform_xy(origin, yaw, local):
+        """
+        Transform a local box center into base_link/world coordinates.
+        The current AUBO base_link is our Planning Scene reference.
+        """
+        ox, oy, oz = origin
+        lx, ly, lz = local
+
+        c = math.cos(yaw)
+        s = math.sin(yaw)
+
+        x = ox + c * lx - s * ly
+        y = oy + s * lx + c * ly
+        z = oz + lz
+
+        return x, y, z
+
+    def make_object(self, object_id):
+        obj = CollisionObject()
+        obj.header.frame_id = 'base_link'
+        obj.id = object_id
+        obj.operation = CollisionObject.ADD
+        return obj
+
+    def add_box(
+        self,
+        obj,
+        center,
+        size,
+        yaw=0.0
+    ):
+        primitive = SolidPrimitive()
+        primitive.type = SolidPrimitive.BOX
+        primitive.dimensions = [
+            float(size[0]),
+            float(size[1]),
+            float(size[2])
+        ]
+
+        pose = Pose()
+        pose.position.x = float(center[0])
+        pose.position.y = float(center[1])
+        pose.position.z = float(center[2])
+
+        qz, qw = self.quat_from_yaw(yaw)
+
+        pose.orientation.x = 0.0
+        pose.orientation.y = 0.0
+        pose.orientation.z = qz
+        pose.orientation.w = qw
+
+        obj.primitives.append(primitive)
+        obj.primitive_poses.append(pose)
+
+    def add_local_box(
+        self,
+        obj,
+        link_origin,
+        link_yaw,
+        local_center,
+        size
+    ):
+        center = self.transform_xy(
+            link_origin,
+            link_yaw,
+            local_center
+        )
+
+        self.add_box(
+            obj,
+            center,
+            size,
+            link_yaw
+        )
+
+    def build_scene(self):
+
+        objects = []
+
+        # =====================================================
+        # 1. Ground
+        #
+        # Gazebo workcell ground is at approximately z=-0.95.
+        # =====================================================
+
+        ground = self.make_object('workcell_ground')
+
+        self.add_box(
+            ground,
+            center=(0.0, 0.0, -0.965),
+            size=(4.0, 4.0, 0.03)
+        )
+
+        objects.append(ground)
+
+        # =====================================================
+        # 2. AUBO mounting pedestal
+        #
+        # Do NOT extend it all the way into the robot base.
+        # This avoids an artificial collision between the
+        # environment and the AUBO base_link.
+        # =====================================================
+
+        pedestal = self.make_object('workcell_pedestal')
+
+        self.add_box(
+            pedestal,
+            center=(0.0, 0.0, -0.515),
+            size=(0.50, 0.50, 0.87)
+        )
+
+        objects.append(pedestal)
+
+        # =====================================================
+        # 3. Large BOX / bin
+        #
+        # Original mesh bounds approximately:
+        #
+        # x = 0 ... 1.140
+        # y = -0.790 ... 0
+        # z = 0 ... 0.934
+        #
+        # IMPORTANT:
+        # Do NOT model this as one solid cube.
+        # It is represented as bottom + 4 walls so the robot
+        # may later reach into the bin.
+        # =====================================================
+
+        box_origin = (
+            0.39500125,
+            -0.32996664,
+            -0.94995206
+        )
+
+        box_yaw = -1.57079265
+
+        bin_obj = self.make_object('workcell_box')
+
+        # bottom
+        self.add_local_box(
+            bin_obj,
+            box_origin,
+            box_yaw,
+            (0.570085, -0.395000, 0.020),
+            (1.14017, 0.79000, 0.040)
+        )
+
+        # wall x-min
+        self.add_local_box(
+            bin_obj,
+            box_origin,
+            box_yaw,
+            (0.020, -0.395000, 0.467195),
+            (0.040, 0.79000, 0.93439)
+        )
+
+        # wall x-max
+        self.add_local_box(
+            bin_obj,
+            box_origin,
+            box_yaw,
+            (1.120, -0.395000, 0.467195),
+            (0.040, 0.79000, 0.93439)
+        )
+
+        # wall y-min
+        self.add_local_box(
+            bin_obj,
+            box_origin,
+            box_yaw,
+            (0.570085, -0.770, 0.467195),
+            (1.14017, 0.040, 0.93439)
+        )
+
+        # wall y-max
+        self.add_local_box(
+            bin_obj,
+            box_origin,
+            box_yaw,
+            (0.570085, -0.020, 0.467195),
+            (1.14017, 0.040, 0.93439)
+        )
+
+        objects.append(bin_obj)
+
+        # =====================================================
+        # 4. STORE
+        #
+        # Simplified from the supplied STL.
+        # Keep structural pieces while avoiding a huge solid
+        # bounding box.
+        # =====================================================
+
+        store_origin = (
+            -0.42499759,
+            -0.64593152,
+            -0.93995323
+        )
+
+        store_yaw = -1.57079265
+
+        store = self.make_object('workcell_store')
+
+        store_parts = [
+            # upper large structure
+            (
+                (0.2500, -0.1500, 0.7510),
+                (0.5500, 0.4000, 0.3200)
+            ),
+
+            # lower plate
+            (
+                (0.2500, -0.1750, 0.0610),
+                (0.5500, 0.4000, 0.0200)
+            ),
+
+            # middle plate
+            (
+                (0.2500, -0.1750, 0.5810),
+                (0.5500, 0.4000, 0.0200)
+            ),
+
+            # four posts
+            (
+                (0.5000, -0.3500, 0.3210),
+                (0.0500, 0.0500, 0.5000)
+            ),
+            (
+                (0.0000, -0.3500, 0.3210),
+                (0.0500, 0.0500, 0.5000)
+            ),
+            (
+                (0.5000, 0.0000, 0.3210),
+                (0.0500, 0.0500, 0.5000)
+            ),
+            (
+                (0.0000, 0.0000, 0.3210),
+                (0.0500, 0.0500, 0.5000)
+            ),
+        ]
+
+        for center, size in store_parts:
+            self.add_local_box(
+                store,
+                store_origin,
+                store_yaw,
+                center,
+                size
+            )
+
+        objects.append(store)
+
+        # =====================================================
+        # 5. Camera holder
+        #
+        # The supplied camera_holder STL contains ~266k
+        # triangles, which is unnecessarily expensive for
+        # MoveIt/FCL.
+        #
+        # Use collision primitives for its major structural
+        # pieces. Gazebo still shows the original detailed STL.
+        # =====================================================
+
+        camera_origin = (
+            0.59012976,
+            -0.92535016,
+            -0.93995425
+        )
+
+        camera_yaw = 1.5708
+
+        holder = self.make_object('camera_holder')
+
+        camera_parts = [
+            # main vertical post
+            (
+                (0.0140, -0.00437, 0.9500),
+                (0.080, 0.040, 1.900)
+            ),
+
+            # top horizontal beam
+            (
+                (0.0140, 0.26563, 1.8800),
+                (0.080, 0.500, 0.040)
+            ),
+
+            # camera/head assembly
+            (
+                (0.0116, 0.56413, 1.8051),
+                (0.323, 0.097, 0.100)
+            ),
+
+            # base plate
+            (
+                (0.0140, -0.00487, 0.010),
+                (0.300, 0.200, 0.020)
+            ),
+
+            # top support
+            (
+                (0.0116, 0.48563, 1.810),
+                (0.280, 0.060, 0.100)
+            ),
+
+            # curved/support region
+            (
+                (0.0140, 0.14813, 1.7275),
+                (0.080, 0.265, 0.265)
+            ),
+        ]
+
+        for center, size in camera_parts:
+            self.add_local_box(
+                holder,
+                camera_origin,
+                camera_yaw,
+                center,
+                size
+            )
+
+        objects.append(holder)
+
+        return objects
+
+    def apply(self):
+
+        self.get_logger().info(
+            'Waiting for /apply_planning_scene...'
+        )
+
+        if not self.client.wait_for_service(
+            timeout_sec=10.0
+        ):
+            raise RuntimeError(
+                '/apply_planning_scene is unavailable. '
+                'Start move_group first.'
+            )
+
+        scene = PlanningScene()
+
+        scene.is_diff = True
+        scene.robot_state.is_diff = True
+
+        scene.world.collision_objects = self.build_scene()
+
+        request = ApplyPlanningScene.Request()
+        request.scene = scene
+
+        self.get_logger().info(
+            f'Adding {len(scene.world.collision_objects)} '
+            'workcell collision objects...'
+        )
+
+        future = self.client.call_async(request)
+
+        rclpy.spin_until_future_complete(
+            self,
+            future
+        )
+
+        result = future.result()
+
+        if result is None:
+            raise RuntimeError(
+                'No response from /apply_planning_scene'
+            )
+
+        if not result.success:
+            raise RuntimeError(
+                'MoveIt rejected Planning Scene'
+            )
+
+        self.get_logger().info(
+            '======================================'
+        )
+        self.get_logger().info(
+            'WORKCELL PLANNING SCENE ADDED'
+        )
+        self.get_logger().info(
+            '======================================'
+        )
+
+        self.get_logger().info(
+            'Added: workcell_ground'
+        )
+        self.get_logger().info(
+            'Added: workcell_pedestal'
+        )
+        self.get_logger().info(
+            'Added: workcell_box (open-top)'
+        )
+        self.get_logger().info(
+            'Added: workcell_store'
+        )
+        self.get_logger().info(
+            'Added: camera_holder'
+        )
+
+
+def main(args=None):
+
+    rclpy.init(args=args)
+
+    node = WorkcellScene()
+
+    try:
+        node.apply()
+
+    except Exception as e:
+        node.get_logger().error(
+            f'FAILED: {e}'
+        )
+
+    finally:
+        node.destroy_node()
+
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

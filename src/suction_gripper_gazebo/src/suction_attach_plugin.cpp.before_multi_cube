@@ -1,0 +1,190 @@
+#include <functional>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include <gazebo/gazebo.hh>
+#include <gazebo/physics/physics.hh>
+
+#include <gazebo_ros/node.hpp>
+
+#include <rclcpp/rclcpp.hpp>
+#include <std_srvs/srv/trigger.hpp>
+
+namespace gazebo
+{
+
+class SuctionAttachPlugin : public ModelPlugin
+{
+public:
+  void Load(physics::ModelPtr model, sdf::ElementPtr sdf) override
+  {
+    model_ = model;
+    world_ = model_->GetWorld();
+    ros_node_ = gazebo_ros::Node::Get(sdf);
+
+    // Gazebo may lump fixed links. Try from ideal link to fallback links.
+    const std::vector<std::string> candidates = {
+      "suction_pad_link",
+      "suction_cup_link",
+      "ee_link",
+      "wrist3_Link"
+    };
+
+    for (const auto &name : candidates) {
+      auto link = model_->GetLink(name);
+      if (link) {
+        suction_link_ = link;
+        suction_link_name_ = name;
+        break;
+      }
+    }
+
+    if (!suction_link_) {
+      RCLCPP_ERROR(
+        ros_node_->get_logger(),
+        "Cannot find any usable suction parent link.");
+
+      RCLCPP_ERROR(
+        ros_node_->get_logger(),
+        "Gazebo links available in model:");
+
+      for (const auto &link : model_->GetLinks()) {
+        RCLCPP_ERROR(
+          ros_node_->get_logger(),
+          "  %s",
+          link->GetName().c_str());
+      }
+      return;
+    }
+
+    RCLCPP_WARN(
+      ros_node_->get_logger(),
+      "Using Gazebo link [%s] as suction attachment parent",
+      suction_link_name_.c_str());
+
+    suction_on_srv_ =
+      ros_node_->create_service<std_srvs::srv::Trigger>(
+        "/suction_on",
+        std::bind(
+          &SuctionAttachPlugin::On,
+          this,
+          std::placeholders::_1,
+          std::placeholders::_2));
+
+    suction_off_srv_ =
+      ros_node_->create_service<std_srvs::srv::Trigger>(
+        "/suction_off",
+        std::bind(
+          &SuctionAttachPlugin::Off,
+          this,
+          std::placeholders::_1,
+          std::placeholders::_2));
+
+    RCLCPP_INFO(
+      ros_node_->get_logger(),
+      "Suction plugin ready: /suction_on /suction_off");
+  }
+
+private:
+  void On(
+    const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+    std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+  {
+    if (joint_) {
+      response->success = true;
+      response->message = "Suction already ON";
+      return;
+    }
+
+    auto target_model = world_->ModelByName("grasp_cube");
+
+    if (!target_model) {
+      response->success = false;
+      response->message = "Cannot find grasp_cube";
+      return;
+    }
+
+    auto target_link = target_model->GetLink("cube_link");
+
+    if (!target_link) {
+      response->success = false;
+      response->message = "Cannot find cube_link";
+      return;
+    }
+
+    const auto p1 = suction_link_->WorldPose().Pos();
+    const auto p2 = target_link->WorldPose().Pos();
+
+    const double distance = p1.Distance(p2);
+
+    RCLCPP_INFO(
+      ros_node_->get_logger(),
+      "Distance [%s -> cube_link] = %.4f m",
+      suction_link_name_.c_str(),
+      distance);
+
+    // Temporary generous threshold because wrist3_Link may be used
+    // after Gazebo fixed-joint lumping.
+    if (distance > 0.25) {
+      response->success = false;
+      response->message =
+        "Cube too far: " + std::to_string(distance) + " m";
+      return;
+    }
+
+    joint_ = world_->Physics()->CreateJoint("fixed", model_);
+
+    joint_->Attach(suction_link_, target_link);
+    joint_->Load(
+      suction_link_,
+      target_link,
+      ignition::math::Pose3d());
+    joint_->Init();
+
+    response->success = true;
+    response->message = "grasp_cube attached";
+
+    RCLCPP_INFO(
+      ros_node_->get_logger(),
+      "Suction ON: grasp_cube attached to %s",
+      suction_link_name_.c_str());
+  }
+
+  void Off(
+    const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+    std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+  {
+    if (!joint_) {
+      response->success = true;
+      response->message = "Suction already OFF";
+      return;
+    }
+
+    joint_->Detach();
+    joint_.reset();
+
+    response->success = true;
+    response->message = "grasp_cube detached";
+
+    RCLCPP_INFO(
+      ros_node_->get_logger(),
+      "Suction OFF: grasp_cube detached");
+  }
+
+  physics::ModelPtr model_;
+  physics::WorldPtr world_;
+  physics::LinkPtr suction_link_;
+  physics::JointPtr joint_;
+
+  std::string suction_link_name_;
+
+  gazebo_ros::Node::SharedPtr ros_node_;
+
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr suction_on_srv_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr suction_off_srv_;
+};
+
+GZ_REGISTER_MODEL_PLUGIN(SuctionAttachPlugin)
+
+}  // namespace gazebo
