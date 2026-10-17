@@ -200,9 +200,39 @@ handle_workspace_ros_processes() {
 # while.  Stopping only the CLI daemon is safe for running ROS nodes and makes
 # the next ros2 command start with a fresh graph cache.
 reset_ros2_cli_daemon() {
-  if command -v ros2 >/dev/null 2>&1; then
-    echo 'Refreshing ROS 2 CLI discovery cache'
-    ros2 daemon stop >/dev/null 2>&1 || true
+  command -v ros2 >/dev/null 2>&1 || return 0
+
+  echo 'Refreshing ROS 2 CLI discovery cache'
+  if timeout --signal=TERM --kill-after=1s 5s \
+      ros2 daemon stop >/dev/null 2>&1; then
+    return 0
+  fi
+
+  # A wedged daemon can block both `aubo.sh stop` and the cleanup phase of
+  # `aubo.sh start`. Restrict the fallback to this user's daemon for the
+  # active ROS domain; never match arbitrary Python or ROS processes.
+  local domain_id="${ROS_DOMAIN_ID:-0}"
+  local pid=""
+  local cmdline=""
+  local -a stale_daemon_pids=()
+  echo "WARNING: ROS 2 CLI daemon did not stop within 5 seconds; removing the stale domain-$domain_id daemon."
+  while IFS= read -r pid; do
+    [[ -n "$pid" && "$pid" != "$$" ]] || continue
+    cmdline="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+    if [[ "$cmdline" == *'ros2cli.daemon.daemonize'* &&
+          "$cmdline" == *'--name ros2-daemon'* &&
+          "$cmdline" == *"--ros-domain-id $domain_id"* ]]; then
+      kill -TERM "$pid" 2>/dev/null || true
+      stale_daemon_pids+=("$pid")
+    fi
+  done < <(pgrep -u "$(id -u)" -f 'ros2cli[.]daemon[.]daemonize' 2>/dev/null || true)
+
+  if (( ${#stale_daemon_pids[@]} )); then
+    sleep 1
+    for pid in "${stale_daemon_pids[@]}"; do
+      kill -0 "$pid" 2>/dev/null || continue
+      kill -KILL "$pid" 2>/dev/null || true
+    done
   fi
 }
 

@@ -41,6 +41,13 @@ def test_stop_help_is_non_mutating():
     assert "Cleanup command finished" not in result.stdout
 
 
+def test_stop_bounds_ros2_daemon_refresh():
+    source = (ROOT / "scripts/stop.sh").read_text()
+    assert "timeout --signal=TERM --kill-after=1s 5s" in source
+    assert "--ros-domain-id $domain_id" in source
+    assert 'kill -KILL "$pid"' in source
+
+
 def make_stub(tmp_path, name, content):
     path = tmp_path / "scripts" / name
     path.parent.mkdir(exist_ok=True)

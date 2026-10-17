@@ -207,9 +207,9 @@
         <surface>
           <friction>
             <ode>
-              <!-- High static/dynamic friction for settled source objects. -->
-              <mu>1.2</mu>
-              <mu2>1.2</mu2>
+              <!-- Two tangential friction directions, matched to the cube. -->
+              <mu>1.5</mu>
+              <mu2>1.5</mu2>
               <slip1>0.0</slip1>
               <slip2>0.0</slip2>
             </ode>
@@ -240,6 +240,19 @@
       </visual>
       <collision name="collision">
         <geometry><mesh><uri>model://workcell_environment/meshes/store.stl</uri></mesh></geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.5</mu>
+              <mu2>1.5</mu2>
+              <slip1>0</slip1>
+              <slip2>0</slip2>
+            </ode>
+          </friction>
+          <bounce>
+            <restitution_coefficient>0</restitution_coefficient>
+          </bounce>
+        </surface>
       </collision>
     </link>
 

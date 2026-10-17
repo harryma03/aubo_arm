@@ -224,7 +224,7 @@ def load_system_config():
             'AUBO_EDGE_GRASP_COMPENSATION', True
         ),
         edge_grasp_trigger=env_float('AUBO_EDGE_GRASP_TRIGGER', 0.080),
-        edge_grasp_offset=env_float('AUBO_EDGE_GRASP_OFFSET', 0.010),
+        edge_grasp_offset=env_float('AUBO_EDGE_GRASP_OFFSET', 0.020),
         snapshot_timeout=env_float('AUBO_TARGET_SNAPSHOT_TIMEOUT', 8.0),
         settle_time=env_float('AUBO_TARGET_SETTLE_TIME', 0.8),
         collision_padding=env_float(

@@ -127,9 +127,9 @@ class TargetQueue:
         target,
         enabled=True,
         trigger=0.080,
-        offset=0.010,
+        offset=0.020,
     ):
-        """Return a wall-aware TCP point without changing target identity."""
+        """Return a graded wall-aware TCP point without changing identity."""
         original = tuple(float(value) for value in target.position)
         if not enabled or trigger <= 0.0 or offset <= 0.0:
             return original, 'CENTER_ONLY'
@@ -142,12 +142,26 @@ class TargetQueue:
         grasp_x = x
         grasp_y = y
         axes = []
+
+        def axis_offset(clearance):
+            # Base 20 mm compensation is increased in 5 mm steps as the
+            # target approaches a wall.  A second reserved attempt promotes
+            # the axis by one level, while retaining the 30 mm upper bound.
+            level = 0
+            if clearance <= 0.025:
+                level = 2
+            elif clearance <= 0.050:
+                level = 1
+            if target.attempts >= 2:
+                level = min(level + 1, 2)
+            return float(offset) + level * 0.005
+
         if remaining_x <= trigger and x != center_x:
-            shift = min(float(offset), abs(x - center_x))
+            shift = min(axis_offset(remaining_x), abs(x - center_x))
             grasp_x -= math.copysign(shift, x - center_x)
             axes.append('X')
         if remaining_y <= trigger and y != center_y:
-            shift = min(float(offset), abs(y - center_y))
+            shift = min(axis_offset(remaining_y), abs(y - center_y))
             grasp_y -= math.copysign(shift, y - center_y)
             axes.append('Y')
 

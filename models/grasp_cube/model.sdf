@@ -7,13 +7,20 @@
     <link name="cube_link">
       <gravity>true</gravity>
       <self_collide>false</self_collide>
+      <!-- Small ODE velocity decay; supplements contact friction, not a lock.
+           Recheck settling if the physics time step is changed. -->
+      <velocity_decay>
+        <linear>0.001</linear>
+        <angular>0.005</angular>
+      </velocity_decay>
 
       <inertial>
         <mass>0.05</mass>
         <inertia>
-          <ixx>1.0416667e-5</ixx>
-          <iyy>1.0416667e-5</iyy>
-          <izz>1.0416667e-5</izz>
+          <!-- Uniform 0.05 kg box, 0.15 x 0.10 x 0.05 m: m*(b²+c²)/12. -->
+          <ixx>5.208333333e-5</ixx>
+          <iyy>1.041666667e-4</iyy>
+          <izz>1.354166667e-4</izz>
           <ixy>0</ixy>
           <ixz>0</ixz>
           <iyz>0</iyz>
@@ -30,12 +37,16 @@
           <friction>
             <ode>
               <!-- Match the hopper bottom so ODE does not clamp the pair. -->
-              <mu>1.2</mu>
-              <mu2>1.2</mu2>
+              <mu>1.5</mu>
+              <mu2>1.5</mu2>
               <slip1>0.0</slip1>
               <slip2>0.0</slip2>
             </ode>
           </friction>
+          <!-- Explicitly retain the non-bouncing default. -->
+          <bounce>
+            <restitution_coefficient>0</restitution_coefficient>
+          </bounce>
         </surface>
       </collision>
 

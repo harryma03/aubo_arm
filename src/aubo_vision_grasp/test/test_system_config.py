@@ -51,7 +51,7 @@ def test_edge_grasp_compensation_defaults_are_conservative(monkeypatch):
 
     assert queue.edge_grasp_compensation is True
     assert queue.edge_grasp_trigger == pytest.approx(0.080)
-    assert queue.edge_grasp_offset == pytest.approx(0.010)
+    assert queue.edge_grasp_offset == pytest.approx(0.020)
     assert queue.edge_max_retries == 1
 
 

@@ -124,18 +124,18 @@
   <!-- TCP center of suction surface -->
 
   <link name="suction_tcp">
-    <!-- A tiny valid inertia prevents Gazebo's URDF->SDF conversion from
-         deleting this fixed child link before the suction plugin resolves it. -->
+    <!-- Keep the TCP as an independent Gazebo link for the suction plugin,
+         but avoid coupling a 50 g payload to a near-zero-mass body. -->
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.0001"/>
+      <mass value="0.01"/>
       <inertia
-        ixx="0.00000001"
+        ixx="0.0000001667"
         ixy="0.0"
         ixz="0.0"
-        iyy="0.00000001"
+        iyy="0.0000001667"
         iyz="0.0"
-        izz="0.00000001"/>
+        izz="0.0000001667"/>
     </inertial>
   </link>
 

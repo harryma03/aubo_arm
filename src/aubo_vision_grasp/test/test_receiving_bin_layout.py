@@ -29,5 +29,5 @@ def test_last_receiving_bin_row_is_shifted_inward(monkeypatch):
 
     slots = receiving_bin_place_slots(load_system_config().workcell)
 
-    assert slots[-2] == pytest.approx((-0.655, -1.030))
-    assert slots[-1] == pytest.approx((-0.495, -1.030))
+    assert slots[-2] == pytest.approx((-0.655, -1.020))
+    assert slots[-1] == pytest.approx((-0.495, -1.020))

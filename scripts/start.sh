@@ -3,6 +3,7 @@
 set -e
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/env.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gazebo_guard.sh"
 aubo_load_runtime
 LOG="$WS/run_logs"
 GAZEBO_GUI="${AUBO_GAZEBO_GUI:-false}"
@@ -64,6 +65,21 @@ echo "[0/6] Cleaning old processes..."
 # Keep cleanup scoped to this workcell.  In particular, do not kill every
 # gzserver, RViz, MoveIt, or ROS node belonging to other projects.
 "$WS/scripts/stop.sh"
+gazebo_check_port
+
+# Only stop launch trees created by this invocation on a failed startup.
+STARTUP_LAUNCH_PIDS=()
+startup_exit() {
+  local status=$? pid
+  if (( status != 0 )); then
+    for pid in "${STARTUP_LAUNCH_PIDS[@]}"; do
+      gazebo_stop_launch_tree "$pid"
+    done
+  fi
+}
+trap startup_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 
 # ============================================================
@@ -80,15 +96,19 @@ nohup ros2 launch \
   launch_rviz:="$GAZEBO_RVIZ" \
   gazebo_gui:="$GAZEBO_GUI" \
   > "$LOG/gazebo.log" 2>&1 &
+GAZEBO_LAUNCH_PID=$!
+STARTUP_LAUNCH_PIDS+=("$GAZEBO_LAUNCH_PID")
 
 echo "Waiting for Gazebo..."
 
 for i in $(seq 1 60); do
 
-    if ros2 service list 2>/dev/null \
+    gazebo_check_alive
+    if gazebo_has_server && timeout 3 ros2 service list 2>/dev/null \
         | grep -q '^/spawn_entity$'; then
 
         echo "Gazebo ready."
+        gazebo_check_alive
         break
     fi
 
@@ -120,12 +140,14 @@ nohup ros2 launch \
   ground_y:="$GROUND_Y" \
   ground_z:="$GROUND_Z" \
   > "$LOG/workcell.log" 2>&1 &
+STARTUP_LAUNCH_PIDS+=("$!")
 
 echo "Waiting for RGB-D camera..."
 
 for i in $(seq 1 30); do
 
-    if ros2 topic list 2>/dev/null \
+    gazebo_check_alive
+    if timeout 3 ros2 topic list 2>/dev/null \
         | grep -Fxq "$AUBO_DEPTH_TOPIC"; then
 
         echo "Workcell + RGB-D camera ready."
@@ -135,9 +157,10 @@ for i in $(seq 1 30); do
     sleep 1
 
     if [ "$i" -eq 30 ]; then
-        echo "WARNING: Camera topic not detected yet."
+        echo "ERROR: Camera topic not detected; aborting startup."
         echo "Check:"
         echo "  tail -100 $LOG/workcell.log"
+        exit 1
     fi
 done
 
@@ -152,6 +175,8 @@ echo "[3/6] Checking trajectory controller..."
 CONTROLLER_MANAGER_READY=0
 
 for i in $(seq 1 30); do
+
+    gazebo_check_alive
 
     if timeout 3 ros2 service list 2>/dev/null \
         | grep -q '^/controller_manager/list_controllers$'; then
@@ -204,19 +229,21 @@ nohup ros2 launch \
   aubo_type:="$AUBO_MOVEIT_MODEL" \
   launch_rviz:="$MOVEIT_RVIZ" \
   > "$LOG/moveit.log" 2>&1 &
+STARTUP_LAUNCH_PIDS+=("$!")
 
 echo "Waiting for MoveIt..."
 
 for i in $(seq 1 60); do
 
     SERVICE_OK=0
+    gazebo_check_alive
     ACTION_OK=0
 
-    ros2 service list 2>/dev/null \
+    timeout 3 ros2 service list 2>/dev/null \
         | grep -q '^/compute_cartesian_path$' \
         && SERVICE_OK=1
 
-    ros2 action list 2>/dev/null \
+    timeout 3 ros2 action list 2>/dev/null \
         | grep -q '^/execute_trajectory$' \
         && ACTION_OK=1
 

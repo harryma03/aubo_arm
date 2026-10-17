@@ -86,8 +86,56 @@ def test_edge_grasp_moves_toward_hopper_center_on_both_axes():
         offset=0.010,
     )
 
-    assert grasp == pytest.approx((0.2100, -0.3600, -0.75))
+    assert grasp == pytest.approx((0.2000, -0.3700, -0.75))
     assert reason == 'INWARD_XY'
+
+
+@pytest.mark.parametrize(
+    ('target_x', 'expected_x'),
+    (
+        (0.1675, 0.1475),  # 60 mm clearance -> 20 mm
+        (0.1875, 0.1625),  # 40 mm clearance -> 25 mm
+        (0.2075, 0.1775),  # 20 mm clearance -> 30 mm
+    ),
+)
+def test_edge_grasp_compensation_is_graded_by_clearance(
+    target_x,
+    expected_x,
+):
+    queue = TargetQueue(
+        hopper_center=(0.0, -0.75),
+        safe_half=(0.2275, 0.4100),
+    )
+    queue.seed([(target_x, -0.75, -0.75)])
+
+    grasp, reason = queue.compensated_grasp_position(
+        queue.records[0],
+        trigger=0.080,
+    )
+
+    assert grasp == pytest.approx((expected_x, -0.75, -0.75))
+    assert reason == 'INWARD_X'
+
+
+def test_second_edge_attempt_promotes_compensation_one_level():
+    queue = TargetQueue(
+        edge_margin=0.080,
+        edge_max_retries=1,
+        hopper_center=(0.0, -0.75),
+        safe_half=(0.2275, 0.4100),
+    )
+    queue.seed([(0.1875, -0.75, -0.75)])
+
+    first = queue.reserve_next()
+    first_grasp, _ = queue.compensated_grasp_position(first)
+    queue.fail(first.target_id, 'COLLISION_RISK')
+    assert queue.reactivate_deferred() == 1
+    second = queue.reserve_next()
+    second_grasp, _ = queue.compensated_grasp_position(second)
+
+    assert first.attempts == 2
+    assert first_grasp == pytest.approx((0.1625, -0.75, -0.75))
+    assert second_grasp == pytest.approx((0.1575, -0.75, -0.75))
 
 
 def test_edge_grasp_keeps_center_when_another_target_would_be_nearest():

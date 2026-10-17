@@ -499,8 +499,9 @@ def receiving_bin_place_slots(workcell):
         (-0.495, -0.740),
         (-0.655, -0.895),
         (-0.495, -0.895),
-        (-0.655, -1.030),
-        (-0.495, -1.030),
+        # Keep the rear row 10 mm farther from the receiving-bin wall.
+        (-0.655, -1.020),
+        (-0.495, -1.020),
     )
     slots = tuple(
         (workcell.x + x, workcell.y + y)

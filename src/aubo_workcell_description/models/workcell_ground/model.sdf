@@ -5,6 +5,19 @@
     <link name="ground_link">
       <collision name="collision">
         <geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.5</mu>
+              <mu2>1.5</mu2>
+              <slip1>0</slip1>
+              <slip2>0</slip2>
+            </ode>
+          </friction>
+          <bounce>
+            <restitution_coefficient>0</restitution_coefficient>
+          </bounce>
+        </surface>
       </collision>
       <visual name="visual">
         <geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry>

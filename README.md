@@ -90,6 +90,9 @@ ROBOT_MODEL=aubo_i10 ./aubo.sh start gui
 
 程序日志保存在 `run_logs/`；构建日志由 colcon 写入 `log/`。
 排查时优先检查 `gazebo.log`、`moveit.log`、`visual_pick_system.log`。
+启动前会检查 `GAZEBO_MASTER_URI` 指定的端口（默认 11345）。若被其他进程
+占用则报告占用者并退出，不自动杀进程。Gazebo 提前退出或相机就绪超时会
+中止启动，并向本次创建的 launch 进程发送退出信号；已有日志保留供排查。
 
 ## 验证与 Git
 
